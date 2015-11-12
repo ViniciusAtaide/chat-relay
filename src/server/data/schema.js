@@ -2,19 +2,26 @@ import {
   GraphQLObjectType,
   GraphQLInt,
   GraphQLString,
-  GraphQLSchema
+  GraphQLList,
+  GraphQLSchema,
+  GraphQLNonNull
 } from 'graphql';
 
 import {
   fromGlobalId,
   globalIdField,
-  nodeDefinitions
+  nodeDefinitions,
+  mutationWithClientMutationId,
 } from 'graphql-relay';
 
-const example = {
+const store = {
   id: 1,
-  text: 'Hello World'
+  messages: [{
+    id: 1,
+    text: 'Hello World'
+  }]
 };
+
 
 /**
  * The first argument defines the way to resolve an ID to its object.
@@ -24,37 +31,74 @@ var { nodeInterface, nodeField } = nodeDefinitions(
   (globalId) => {
     let { id, type } = fromGlobalId(globalId);
     if (type === 'Example')
-      return example;
+      return store;
+    if (type === 'Message')
+      return store.messages[id];
     return null;
   },
-  (obj) => {
-    return exampleType;
-  }
+  (obj) => store.messages ? messageType : exampleType
 );
 
-var exampleType = new GraphQLObjectType({
-  name: 'Example',
+var messageType = new GraphQLObjectType({
+  name: 'Message',
   fields: () => ({
-    id: globalIdField('Example'),
+    id: globalIdField('Message'),
     text: {
       type: GraphQLString,
-      description: 'Hello World'
+      description: 'The message it yields'
     }
   }),
   interfaces: [ nodeInterface ]
 });
 
+var storeType = new GraphQLObjectType({
+  name: 'Store',
+  fields: () => ({
+    id: globalIdField('Example'),
+    messages: { type: new GraphQLList(messageType) }
+  }),
+  interfaces: [ nodeInterface ]
+});
+
+
 var queryType = new GraphQLObjectType({
   name: 'Query',
   fields: () => ({
     node: nodeField,
+    id: { type: GraphQLInt },
     example: {
-      type: exampleType,
-      resolve: () => example
+      type: storeType,
+      resolve: () => store
     }
   })
 });
 
+var messageMutation = mutationWithClientMutationId({
+  name: 'CreateMessage',
+  inputFields: {
+    text: { type: new GraphQLNonNull(GraphQLString) }
+  },
+  outputFields: {
+    store: {
+      type: storeType,
+      resolve: () => store
+    }
+  },
+  mutateAndGetPayload: ({message}) => {
+    var newMessage = { message, id: store.messages.length };
+    store.messages.push(newMessage);
+    return newMessage;
+  }
+});
+
+var mutationType = new GraphQLObjectType({
+  name: 'Mutation',
+  fields: () => ({
+    CreateMessage: messageMutation
+  })
+});
+
 export var Schema = new GraphQLSchema({
-  query: queryType
+  query: queryType,
+  mutation: mutationType
 });

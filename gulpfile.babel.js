@@ -1,11 +1,13 @@
 import gulp from 'gulp';
 import webpack from 'webpack';
-import WebpackDevServer from 'webpack-dev-server';
 import nodemon from 'nodemon';
 import path from 'path';
+import getBabelRelayPlugin from 'babel-relay-plugin';
+import httpProxy from 'http-proxy';
 import { Schema } from './src/server/data/schema';
 import { introspectionQuery } from 'graphql/utilities';
 import { graphql } from 'graphql';
+import express from 'express';
 import fs from 'fs';
 
 import configs from './webpack.config';
@@ -30,17 +32,33 @@ function recompile() {
 // run the webpack dev server
 //  must generate the schema.json first as compiler relies on it for babel-relay-plugin
 gulp.task('webpack', ['generate-schema'], () => {
-  compiler = webpack(frontendConfig);
-  let server = new WebpackDevServer(compiler, {
-    contentBase: path.join(__dirname, 'build', 'public'),
-    hot: true,
+  //  let server = new (compiler, {
+  //  contentBase: path.join(__dirname, 'build', 'public'),
+  //  hot: true,
+  //  noInfo: true,
+  //  stats: { colors: true },
+  //  historyApiFallback: true,
+  //  proxy: {
+  //    '/graphql': 'http://localhost:8080'
+  //  }
+  //});
+  let compiler = webpack(frontendConfig);
+  let server = express();
+  let proxy = httpProxy.createProxyServer({changeOrigin: true});
+
+  server.use(require('webpack-dev-middleware')(compiler, {
     noInfo: true,
-    stats: { colors: true },
-    historyApiFallback: true,
-    proxy: {
-      '/graphql': 'http://localhost:8080'
-    }
+    stats: { colors: true }
+  }));
+
+  server.use('/graphql', (req, res) => {
+    proxy.web(req ,res, {
+      target: 'http://localhost:8080'
+    });
   });
+
+  server.use(require('webpack-hot-middleware')(compiler));
+
   server.listen(3000, 'localhost', (err, result) => {
     if (err)
       return console.error(err);
